@@ -3,7 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
-const prometheus = require('prometheus-client');
+const promClient = require('prom-client');
 
 const logger = require('./utils/logger');
 const securityMiddleware = require('./middleware/security');
@@ -19,8 +19,19 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Prometheus metrics
-const collectDefaultMetrics = prometheus.collectDefaultMetrics;
-collectDefaultMetrics({ timeout: 5000 });
+const collectDefaultMetrics = promClient.collectDefaultMetrics;
+const Registry = promClient.Registry;
+const register = new Registry();
+collectDefaultMetrics({ register });
+
+// Custom metrics
+const httpRequestDurationMicroseconds = new promClient.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'Duration of HTTP requests in seconds',
+    labelNames: ['method', 'route', 'code'],
+    buckets: [0.1, 0.5, 1, 5]
+});
+register.registerMetric(httpRequestDurationMicroseconds);
 
 // Middleware
 app.use(cors({
@@ -29,10 +40,22 @@ app.use(cors({
 app.use(express.json());
 app.use(securityMiddleware);
 
+// Request duration middleware
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        httpRequestDurationMicroseconds
+            .labels(req.method, req.route?.path || req.path, res.statusCode)
+            .observe(duration / 1000);
+    });
+    next();
+});
+
 // Monitoring endpoint
-app.get('/metrics', (req, res) => {
-    res.set('Content-Type', prometheus.register.contentType);
-    res.end(prometheus.register.metrics());
+app.get('/metrics', async (req, res) => {
+    res.set('Content-Type', register.contentType);
+    res.send(await register.metrics());
 });
 
 // Health check
