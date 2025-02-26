@@ -3,13 +3,44 @@
 const mongoose = require('mongoose');
 const Node = require('../models/Node');
 const logger = require('./logger');
-const redis = require('redis');
 
-const redisClient = redis.createClient({
-  url: process.env.REDIS_URI
+let redisClient = null;
+
+async function initRedis() {
+  if (process.env.REDIS_URI) {
+    try {
+      const redis = require('redis');
+      // Vérifier que l'URL commence par redis:// ou rediss://
+      const redisUrl = process.env.REDIS_URI.startsWith('redis://') || process.env.REDIS_URI.startsWith('rediss://')
+        ? process.env.REDIS_URI
+        : `redis://${process.env.REDIS_URI}`;
+
+      redisClient = redis.createClient({
+        url: redisUrl
+      });
+
+      redisClient.on('error', (err) => {
+        logger.error('Redis Client Error', err);
+      });
+
+      redisClient.on('connect', () => {
+        logger.info('Connected to Redis');
+      });
+
+      await redisClient.connect();
+    } catch (error) {
+      logger.error('Failed to initialize Redis:', error);
+      redisClient = null;
+    }
+  } else {
+    logger.warn('REDIS_URI not provided, running without Redis caching');
+  }
+}
+
+// Initialiser Redis au démarrage
+initRedis().catch(err => {
+  logger.error('Redis initialization error:', err);
 });
-
-redisClient.on('error', (err) => logger.error('Redis Client Error', err));
 
 const REWARD_FACTORS = {
   bandwidth: 0.01,
@@ -25,14 +56,19 @@ async function calculateLocationMultiplier(country) {
 }
 
 async function getDemandMultiplier(region) {
-  const cachedDemand = await redisClient.get(`demand:${region}`);
-  if (cachedDemand) {
-    return parseFloat(cachedDemand);
+  if (redisClient && redisClient.isOpen) {
+    try {
+      const cachedDemand = await redisClient.get(`demand:${region}`);
+      if (cachedDemand) {
+        return parseFloat(cachedDemand);
+      }
+    } catch (error) {
+      logger.error('Redis getDemandMultiplier error:', error);
+    }
   }
   return REWARD_FACTORS.demand;
 }
 
-// Initialisation des stats d'un nœud
 async function initNodeStats(walletAddress) {
   const existingNode = await Node.findOne({ walletAddress });
   if (existingNode) return existingNode;
@@ -57,7 +93,6 @@ async function initNodeStats(walletAddress) {
   return newNode;
 }
 
-// Calcul des récompenses d'un nœud
 async function calculateVPNRewards(walletAddress) {
   try {
     const node = await Node.findOne({ walletAddress });
