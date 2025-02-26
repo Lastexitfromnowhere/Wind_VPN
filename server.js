@@ -67,7 +67,7 @@ app.get('/health', (req, res) => {
 app.post('/api/connect', auth, connectNode);
 app.post('/api/disconnect', auth, disconnectNode);
 app.get('/api/node-rewards/:walletAddress', auth, nodeRewards);
-app.get('/api/network-stats', networkStats);
+app.use('/api', networkStats);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
