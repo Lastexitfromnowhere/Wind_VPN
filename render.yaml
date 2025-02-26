@@ -2,8 +2,11 @@ services:
   - type: web
     name: vpn-network
     env: node
+    region: frankfurt
+    plan: free
     buildCommand: npm install
     startCommand: node server.js
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
@@ -23,3 +26,4 @@ services:
         value: 100
       - key: LOG_LEVEL
         value: info
+    healthCheckPath: /health
