@@ -10,7 +10,17 @@ module.exports = async (req, res) => {
         }
 
         // Déterminer l'IP publique (dans un environnement réel, vous utiliseriez req.ip ou un service externe)
-        const publicIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || "0.0.0.0";
+        let publicIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || "0.0.0.0";
+        
+        // En développement, si l'IP est localhost (::1 ou 127.0.0.1), utiliser une IP externe simulée
+        if (publicIP === '::1' || publicIP === '127.0.0.1' || publicIP.includes('::ffff:127.0.0.1')) {
+            // Générer une adresse IP aléatoire qui ressemble à une vraie adresse externe
+            const octet1 = Math.floor(Math.random() * 223) + 1; // Éviter les adresses réservées
+            const octet2 = Math.floor(Math.random() * 255);
+            const octet3 = Math.floor(Math.random() * 255);
+            const octet4 = Math.floor(Math.random() * 254) + 1;
+            publicIP = `${octet1}.${octet2}.${octet3}.${octet4}`;
+        }
         
         // Déterminer la bande passante (dans un environnement réel, cela serait basé sur des tests)
         const bandwidth = Math.floor(Math.random() * 100) + 10; // Simulation pour le moment
