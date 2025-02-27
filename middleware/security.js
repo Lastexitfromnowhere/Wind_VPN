@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 // Configuration du rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limite chaque IP à 100 requêtes par fenêtre
+  max: 500, // limite chaque IP à 500 requêtes par fenêtre
   standardHeaders: true, // Retourne les informations de limite dans les headers `RateLimit-*`
   legacyHeaders: false, // Désactive les headers `X-RateLimit-*`
   handler: (req, res) => {
