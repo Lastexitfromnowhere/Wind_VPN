@@ -10,7 +10,7 @@ const nodeSchema = new mongoose.Schema({
   nodeType: {
     type: String,
     enum: ['HOST', 'USER'],
-    required: true
+    default: 'USER'
   },
   active: {
     type: Boolean,
@@ -38,7 +38,7 @@ const nodeSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['ACTIVE', 'INACTIVE', 'BANNED'],
+    enum: ['ACTIVE', 'INACTIVE', 'SUSPENDED'],
     default: 'INACTIVE'
   },
   performance: {
@@ -99,6 +99,10 @@ const nodeSchema = new mongoose.Schema({
       type: Date,
       default: Date.now
     }
+  },
+  connectedToHost: {
+    type: String,
+    default: null
   },
   createdAt: {
     type: Date,

@@ -84,7 +84,9 @@ app.get('/', (req, res) => {
             { path: '/metrics', method: 'GET', description: 'Prometheus metrics' },
             { path: '/api/status', method: 'GET', description: 'Get node status' },
             { path: '/api/reset-node-ip', method: 'POST', description: 'Reset node IP' },
-            { path: '/api/test-node-connection', method: 'GET', description: 'Test connection to a VPN node' }
+            { path: '/api/test-node-connection', method: 'GET', description: 'Test connection to a VPN node' },
+            { path: '/api/available-nodes', method: 'GET', description: 'Get available VPN nodes' },
+            { path: '/api/connect-to-node', method: 'POST', description: 'Connect to a specific node' }
         ],
         documentation: 'For more information, please refer to the API documentation'
     });
@@ -228,6 +230,128 @@ app.get('/api/test-node-connection', auth, async (req, res) => {
         }
     } catch (error) {
         logger.error('Error in test-node-connection:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint pour récupérer la liste des nœuds VPN disponibles
+app.get('/api/available-nodes', auth, async (req, res) => {
+    try {
+        const Node = mongoose.model('Node');
+        
+        // Rechercher tous les nœuds actifs de type HOST
+        const nodes = await Node.find({ 
+            status: 'ACTIVE',
+            nodeType: 'HOST'
+        }).select('walletAddress ip location performance lastSeen connectedUsers -_id');
+        
+        // Calculer un score pour chaque nœud basé sur ses performances
+        const nodesWithScore = nodes.map(node => {
+            // Calculer un score simple basé sur la bande passante et la latence
+            const bandwidthScore = node.performance?.bandwidth ? Math.min(node.performance.bandwidth / 100, 1) : 0.5;
+            const latencyScore = node.performance?.latency ? Math.max(1 - (node.performance.latency / 200), 0) : 0.5;
+            
+            // Calculer un score d'occupation basé sur le nombre d'utilisateurs connectés
+            const occupancyScore = Math.max(1 - ((node.connectedUsers || 0) / 10), 0);
+            
+            // Calculer un score de fraîcheur basé sur la dernière activité
+            const lastSeenScore = node.lastSeen ? 
+                Math.max(1 - ((Date.now() - new Date(node.lastSeen).getTime()) / (24 * 60 * 60 * 1000)), 0) : 0;
+            
+            // Score global (pondéré)
+            const totalScore = (bandwidthScore * 0.3) + (latencyScore * 0.3) + (occupancyScore * 0.2) + (lastSeenScore * 0.2);
+            
+            return {
+                ...node.toObject(),
+                score: parseFloat(totalScore.toFixed(2))
+            };
+        });
+        
+        // Trier les nœuds par score (du plus élevé au plus bas)
+        nodesWithScore.sort((a, b) => b.score - a.score);
+        
+        res.json({
+            success: true,
+            count: nodesWithScore.length,
+            nodes: nodesWithScore
+        });
+    } catch (error) {
+        logger.error('Error fetching available nodes:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint pour se connecter à un nœud spécifique
+app.post('/api/connect-to-node', auth, async (req, res) => {
+    try {
+        const { clientWalletAddress, hostWalletAddress } = req.body;
+        
+        if (!clientWalletAddress || !hostWalletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Client and host wallet addresses are required'
+            });
+        }
+        
+        const Node = mongoose.model('Node');
+        
+        // Vérifier si le nœud hôte existe et est actif
+        const hostNode = await Node.findOne({ 
+            walletAddress: hostWalletAddress,
+            status: 'ACTIVE',
+            nodeType: 'HOST'
+        });
+        
+        if (!hostNode) {
+            return res.status(404).json({
+                success: false,
+                message: 'Host node not found or not active'
+            });
+        }
+        
+        // Créer ou mettre à jour le nœud client
+        let clientNode = await Node.findOne({ walletAddress: clientWalletAddress });
+        
+        if (clientNode) {
+            clientNode.status = 'ACTIVE';
+            clientNode.nodeType = 'USER';
+            clientNode.connectedToHost = hostWalletAddress;
+            clientNode.lastSeen = new Date();
+        } else {
+            clientNode = new Node({
+                walletAddress: clientWalletAddress,
+                nodeType: 'USER',
+                status: 'ACTIVE',
+                connectedToHost: hostWalletAddress,
+                lastSeen: new Date()
+            });
+        }
+        
+        await clientNode.save();
+        
+        // Mettre à jour le nombre d'utilisateurs connectés au nœud hôte
+        hostNode.connectedUsers = (hostNode.connectedUsers || 0) + 1;
+        await hostNode.save();
+        
+        // Dans un système VPN réel, ici nous établirions la connexion VPN
+        // et nous retournerions les informations de configuration
+        
+        res.json({
+            success: true,
+            message: 'Connected to node successfully',
+            nodeIp: hostNode.ip,
+            hostWalletAddress: hostWalletAddress
+        });
+    } catch (error) {
+        logger.error('Error connecting to node:', error);
         res.status(500).json({
             success: false,
             message: 'Server error',
