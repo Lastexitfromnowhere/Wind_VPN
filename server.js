@@ -82,7 +82,8 @@ app.get('/', (req, res) => {
             { path: '/api/network-stats', method: 'GET', description: 'Get network statistics' },
             { path: '/health', method: 'GET', description: 'Health check endpoint' },
             { path: '/metrics', method: 'GET', description: 'Prometheus metrics' },
-            { path: '/api/status', method: 'GET', description: 'Get node status' }
+            { path: '/api/status', method: 'GET', description: 'Get node status' },
+            { path: '/api/reset-node-ip', method: 'POST', description: 'Reset node IP' }
         ],
         documentation: 'For more information, please refer to the API documentation'
     });
@@ -98,6 +99,13 @@ app.use('/api/network-stats', networkStats);
 app.get('/api/status', auth, async (req, res) => {
     try {
         const walletAddress = req.headers['x-wallet-address'] || req.query.walletAddress;
+        
+        logger.info('Headers de requête IP dans /api/status:', {
+            'x-forwarded-for': req.headers['x-forwarded-for'],
+            'x-real-ip': req.headers['x-real-ip'],
+            'remoteAddress': req.socket.remoteAddress,
+            'req.ip': req.ip
+        });
         
         if (!walletAddress) {
             return res.status(400).json({
@@ -153,6 +161,53 @@ app.get('/api/status', auth, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Internal server error'
+        });
+    }
+});
+
+// Route pour réinitialiser l'IP d'un nœud (utile pour passer de local à production)
+app.post('/api/reset-node-ip', auth, async (req, res) => {
+    try {
+        const walletAddress = req.headers['x-wallet-address'] || req.body.walletAddress;
+        
+        if (!walletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Wallet address is required'
+            });
+        }
+        
+        // Rechercher le nœud dans la base de données
+        const Node = mongoose.model('Node');
+        const node = await Node.findOne({ walletAddress });
+        
+        if (!node) {
+            return res.status(404).json({
+                success: false,
+                message: 'Node not found'
+            });
+        }
+        
+        // Déterminer la nouvelle IP
+        const newIp = req.headers['x-forwarded-for'] || 
+                      req.headers['x-real-ip'] || 
+                      req.ip || 
+                      req.socket.remoteAddress;
+        
+        // Mettre à jour l'IP du nœud
+        node.ip = newIp;
+        await node.save();
+        
+        res.json({
+            success: true,
+            message: 'Node IP reset successfully',
+            newIp
+        });
+    } catch (error) {
+        logger.error('Error resetting node IP:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error resetting node IP'
         });
     }
 });

@@ -10,7 +10,18 @@ module.exports = async (req, res) => {
         }
 
         // Déterminer l'IP publique (dans un environnement réel, vous utiliseriez req.ip ou un service externe)
-        let publicIP = req.headers['x-forwarded-for'] || req.socket.remoteAddress || "0.0.0.0";
+        logger.info('Headers de requête IP:', {
+            'x-forwarded-for': req.headers['x-forwarded-for'],
+            'x-real-ip': req.headers['x-real-ip'],
+            'remoteAddress': req.socket.remoteAddress,
+            'req.ip': req.ip
+        });
+        
+        let publicIP = req.headers['x-forwarded-for'] || 
+                       req.headers['x-real-ip'] || 
+                       req.ip || 
+                       req.socket.remoteAddress || 
+                       "0.0.0.0";
         
         // En développement, si l'IP est localhost (::1 ou 127.0.0.1), utiliser une IP externe simulée
         if (publicIP === '::1' || publicIP === '127.0.0.1' || publicIP.includes('::ffff:127.0.0.1')) {
