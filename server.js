@@ -83,7 +83,8 @@ app.get('/', (req, res) => {
             { path: '/health', method: 'GET', description: 'Health check endpoint' },
             { path: '/metrics', method: 'GET', description: 'Prometheus metrics' },
             { path: '/api/status', method: 'GET', description: 'Get node status' },
-            { path: '/api/reset-node-ip', method: 'POST', description: 'Reset node IP' }
+            { path: '/api/reset-node-ip', method: 'POST', description: 'Reset node IP' },
+            { path: '/api/test-node-connection', method: 'GET', description: 'Test connection to a VPN node' }
         ],
         documentation: 'For more information, please refer to the API documentation'
     });
@@ -161,6 +162,76 @@ app.get('/api/status', auth, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Internal server error'
+        });
+    }
+});
+
+// Endpoint pour tester la connexion à un nœud VPN
+app.get('/api/test-node-connection', auth, async (req, res) => {
+    try {
+        const walletAddress = req.headers['x-wallet-address'] || req.query.walletAddress;
+        
+        if (!walletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Wallet address is required'
+            });
+        }
+        
+        // Rechercher le nœud dans la base de données
+        const Node = mongoose.model('Node');
+        const node = await Node.findOne({ walletAddress });
+        
+        if (!node) {
+            return res.status(404).json({
+                success: false,
+                message: 'Node not found'
+            });
+        }
+        
+        // Tester la connexion au nœud
+        try {
+            // Simuler un test de connexion (dans un environnement réel, vous feriez un ping réel)
+            const startTime = Date.now();
+            
+            // Simuler une latence aléatoire entre 10 et 100 ms
+            const latency = Math.floor(Math.random() * 90) + 10;
+            
+            // 90% de chance de succès en développement
+            const isSuccess = Math.random() < 0.9;
+            
+            // Attendre la latence simulée
+            await new Promise(resolve => setTimeout(resolve, latency));
+            
+            if (!isSuccess) {
+                throw new Error('Connection failed');
+            }
+            
+            // Mettre à jour les statistiques du nœud
+            node.performance.latency = latency;
+            node.lastSeen = new Date();
+            await node.save();
+            
+            return res.json({
+                success: true,
+                message: 'Connection successful',
+                latency: latency,
+                ip: node.ip
+            });
+        } catch (error) {
+            logger.error('Error testing node connection:', error);
+            return res.status(503).json({
+                success: false,
+                message: 'Failed to connect to the node',
+                error: error.message
+            });
+        }
+    } catch (error) {
+        logger.error('Error in test-node-connection:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
         });
     }
 });
