@@ -125,7 +125,12 @@ app.get('/api/status', auth, async (req, res) => {
             bandwidth: node.bandwidth,
             connectedUsers: node.connectedUsers || 0,
             uptime: node.uptime || 0,
-            lastSeen: node.lastSeen
+            lastSeen: node.lastSeen,
+            metrics: {
+                uptime: node.uptime || 0,
+                latency: node.performance?.latency || 0,
+                packetLoss: 0
+            }
         });
     } catch (error) {
         logger.error('Error getting node status:', error);
