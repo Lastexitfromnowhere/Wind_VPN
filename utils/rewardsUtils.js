@@ -95,56 +95,128 @@ async function initNodeStats(walletAddress) {
 
 async function calculateVPNRewards(walletAddress) {
   try {
+    // Utiliser le cache Redis si disponible
+    if (redisClient) {
+      const cachedRewards = await redisClient.get(`rewards:${walletAddress}`);
+      if (cachedRewards) {
+        logger.info(`Using cached rewards for ${walletAddress}`);
+        return JSON.parse(cachedRewards);
+      }
+    }
+
     const node = await Node.findOne({ walletAddress });
     if (!node) {
       logger.warn(`Node not found for wallet: ${walletAddress}`);
-      return undefined;
+      return {
+        dailyReward: 0,
+        nodeStats: null,
+        error: 'Node not found'
+      };
     }
 
-    const now = Date.now();
-    const uptimeHours = (now - node.stats.startTime) / (1000 * 3600);
-    
-    const locationMultiplier = await calculateLocationMultiplier(node.location.country);
-    const demandMultiplier = await getDemandMultiplier(node.location.region);
-    
-    const bandwidthReward = node.stats.bandwidthShared * REWARD_FACTORS.bandwidth;
-    const uptimeBonus = uptimeHours * REWARD_FACTORS.uptime;
-    const qualityMultiplier = node.stats.connectionQuality / 100;
+    // Vérifier si le nœud est un hôte
+    if (node.nodeType !== 'HOST') {
+      logger.info(`Node ${walletAddress} is not a host, no rewards calculated`);
+      return {
+        dailyReward: 0,
+        nodeStats: {
+          uptime: node.stats.connectionUptime || 0,
+          bandwidth: node.performance.bandwidth || 0,
+          quality: node.stats.connectionQuality || 100
+        },
+        message: 'Node is not a host'
+      };
+    }
 
+    const now = new Date();
+    const lastCalculation = node.rewards.lastRewardCalculation || node.createdAt || now;
+    
+    // Calculer le temps écoulé depuis le dernier calcul (en heures)
+    const hoursSinceLastCalculation = Math.max(0, (now - lastCalculation) / (1000 * 3600));
+    
+    // Si moins d'une heure s'est écoulée, retourner les récompenses actuelles
+    if (hoursSinceLastCalculation < 1 && node.rewards.dailyReward > 0) {
+      logger.info(`Less than 1 hour since last calculation for ${walletAddress}, returning current rewards`);
+      return {
+        dailyReward: node.rewards.dailyReward,
+        nodeStats: {
+          uptime: node.stats.connectionUptime || 0,
+          bandwidth: node.performance.bandwidth || 0,
+          quality: node.stats.connectionQuality || 100
+        }
+      };
+    }
+    
+    // Calculer les récompenses
+    const uptimeHours = node.stats.connectionUptime / 3600; // Convertir les secondes en heures
+    const bandwidthShared = node.stats.bandwidthShared || node.performance.bandwidth || 0;
+    
+    const locationMultiplier = await calculateLocationMultiplier(node.location.country || 'Unknown');
+    const demandMultiplier = await getDemandMultiplier(node.location.region || 'Unknown');
+    
+    const bandwidthReward = bandwidthShared * REWARD_FACTORS.bandwidth;
+    const uptimeBonus = uptimeHours * REWARD_FACTORS.uptime;
+    const qualityMultiplier = (node.stats.connectionQuality || 100) / 100;
+
+    // Calculer la récompense quotidienne
     const dailyReward = (bandwidthReward + uptimeBonus) * 
                        qualityMultiplier * 
                        locationMultiplier * 
                        demandMultiplier;
 
-    // Update node rewards
+    // Mettre à jour les récompenses du nœud
     node.rewards.dailyReward = dailyReward;
-    node.rewards.totalEarned += dailyReward;
+    node.rewards.totalEarned += dailyReward * (hoursSinceLastCalculation / 24); // Proportionnel au temps écoulé
     node.rewards.lastRewardCalculation = now;
 
-    // Update reward tier
+    // Mettre à jour le niveau de récompense
     if (node.rewards.totalEarned > 5000) {
       node.rewards.rewardTier = 'ELITE';
     } else if (node.rewards.totalEarned > 1000) {
       node.rewards.rewardTier = 'PRO';
+    } else {
+      node.rewards.rewardTier = 'STARTER';
     }
 
     await node.save();
+    
+    const result = {
+      dailyReward,
+      totalEarned: node.rewards.totalEarned,
+      rewardTier: node.rewards.rewardTier,
+      nodeStats: {
+        uptime: node.stats.connectionUptime || 0,
+        bandwidth: node.performance.bandwidth || 0,
+        quality: node.stats.connectionQuality || 100
+      },
+      lastCalculation: node.rewards.lastRewardCalculation
+    };
+    
+    // Mettre en cache les résultats si Redis est disponible
+    if (redisClient) {
+      await redisClient.set(`rewards:${walletAddress}`, JSON.stringify(result), {
+        EX: 300 // Expiration après 5 minutes
+      });
+    }
+
     logger.info(`Rewards calculated for node ${walletAddress}`, {
       dailyReward,
       totalEarned: node.rewards.totalEarned,
       tier: node.rewards.rewardTier
     });
 
-    return {
-      dailyReward,
-      nodeStats: node
-    };
+    return result;
   } catch (error) {
     logger.error('Error calculating rewards', {
       walletAddress,
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
-    throw error;
+    
+    return {
+      dailyReward: 0,
+      error: 'Error calculating rewards'
+    };
   }
 }
 
