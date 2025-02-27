@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 // Configuration du rate limiter
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 500, // limite chaque IP à 500 requêtes par fenêtre
+  max: 2000, // limite chaque IP à 2000 requêtes par fenêtre
   standardHeaders: true, // Retourne les informations de limite dans les headers `RateLimit-*`
   legacyHeaders: false, // Désactive les headers `X-RateLimit-*`
   handler: (req, res) => {
@@ -29,6 +29,21 @@ const authLimiter = rateLimit({
     res.status(429).json({
       success: false,
       error: 'Trop de tentatives d\'authentification, veuillez réessayer plus tard'
+    });
+  }
+});
+
+// Rate limiter spécifique pour les endpoints fréquemment utilisés (status, rewards)
+const statusLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 120, // 2 requêtes par seconde en moyenne
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn(`Status endpoint rate limit exceeded for IP: ${req.ip}`);
+    res.status(429).json({
+      success: false,
+      error: 'Trop de requêtes sur les endpoints de status, veuillez réduire la fréquence'
     });
   }
 });
@@ -122,6 +137,8 @@ const securityMiddleware = [
   (req, res, next) => {
     if (req.path.includes('/auth/') || req.path.includes('/login')) {
       return authLimiter(req, res, next);
+    } else if (req.path.includes('/status') || req.path.includes('/rewards')) {
+      return statusLimiter(req, res, next);
     }
     return apiLimiter(req, res, next);
   },
