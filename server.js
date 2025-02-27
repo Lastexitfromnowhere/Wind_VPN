@@ -5,6 +5,10 @@ const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const promClient = require('prom-client');
 
+// Définir NODE_ENV en développement par défaut
+process.env.NODE_ENV = process.env.NODE_ENV || 'development';
+process.env.AUTO_CREATE_NODE = process.env.AUTO_CREATE_NODE || 'true';
+
 const logger = require('./utils/logger');
 const securityMiddleware = require('./middleware/security');
 const auth = require('./middleware/auth');
@@ -35,7 +39,9 @@ register.registerMetric(httpRequestDurationMicroseconds);
 
 // Middleware
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*'
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Wallet-Address']
 }));
 app.use(express.json());
 app.use(securityMiddleware);

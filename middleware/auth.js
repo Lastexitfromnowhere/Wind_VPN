@@ -27,7 +27,7 @@ const auth = async (req, res, next) => {
         logger.warn(`Erreur de vérification JWT: ${jwtError.message}`);
         
         // Si le token est invalide mais ressemble à une adresse de portefeuille (fallback)
-        if (token.length > 30 && token.startsWith('0x')) {
+        if (token.length > 30) {
           walletAddress = token;
           logger.info(`Utilisation du token comme adresse de portefeuille: ${walletAddress}`);
         } else if (headerWalletAddress) {
@@ -43,16 +43,37 @@ const auth = async (req, res, next) => {
     
     // Si aucune méthode d'authentification n'est fournie
     if (!walletAddress) {
-      return res.status(401).json({ 
-        success: false, 
-        error: 'Authentification requise' 
-      });
+      // En mode développement, utiliser une adresse de test
+      if (process.env.NODE_ENV === 'development') {
+        walletAddress = 'TEST_WALLET_ADDRESS';
+        logger.info(`Mode développement: utilisation de l'adresse de test ${walletAddress}`);
+      } else {
+        return res.status(401).json({ 
+          success: false, 
+          error: 'Authentification requise' 
+        });
+      }
     }
     
     // Vérifier si l'adresse du portefeuille existe dans la base de données
-    const node = await Node.findOne({ walletAddress });
+    let node = await Node.findOne({ walletAddress });
     
-    if (!node) {
+    // Si le nœud n'existe pas, le créer automatiquement en mode développement
+    if (!node && (process.env.NODE_ENV === 'development' || process.env.AUTO_CREATE_NODE === 'true')) {
+      logger.info(`Création automatique d'un nœud pour l'adresse: ${walletAddress}`);
+      node = new Node({
+        walletAddress,
+        nodeType: 'USER',
+        active: true,
+        status: 'ACTIVE',
+        ip: req.ip || '127.0.0.1',
+        bandwidth: 0,
+        connectedUsers: 0,
+        uptime: 0,
+        lastSeen: new Date()
+      });
+      await node.save();
+    } else if (!node) {
       logger.warn(`Tentative d'accès avec une adresse de portefeuille non enregistrée: ${walletAddress}`);
       return res.status(403).json({ 
         success: false, 

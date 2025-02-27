@@ -35,17 +35,7 @@ const authLimiter = rateLimit({
 
 // Middleware pour vérifier l'origine des requêtes
 const corsCheck = (req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    // Vérifier si l'origine est autorisée (à personnaliser selon vos besoins)
-    const allowedOrigins = process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',') 
-      : ['https://wind-frontend-rosy.vercel.app'];
-    
-    if (!allowedOrigins.includes('*') && !allowedOrigins.includes(origin)) {
-      logger.warn(`Tentative d'accès depuis une origine non autorisée: ${origin}`);
-    }
-  }
+  // Accepter toutes les origines pendant la phase de développement
   next();
 };
 
