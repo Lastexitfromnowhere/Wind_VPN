@@ -19,6 +19,25 @@ module.exports = async (req, res) => {
             });
         }
         
+        // S'assurer que les objets stats et rewards existent
+        if (!node.stats) {
+            node.stats = {
+                bandwidthShared: 0,
+                connectionUptime: 0,
+                connectionQuality: 100,
+                startTime: new Date()
+            };
+        }
+        
+        if (!node.rewards) {
+            node.rewards = {
+                dailyReward: 0,
+                totalEarned: 0,
+                rewardTier: 'STARTER',
+                lastRewardCalculation: new Date()
+            };
+        }
+        
         // Calculer le temps d'activité
         const startTime = node.stats.startTime || new Date();
         const endTime = new Date();
@@ -29,9 +48,11 @@ module.exports = async (req, res) => {
         node.stats.connectionUptime += uptimeSeconds;
         
         // Mettre à jour les récompenses si c'est un nœud hôte
+        let bandwidthReward = 0;
         if (node.nodeType === 'HOST') {
             // Calculer les récompenses basées sur le temps d'activité et la bande passante
-            const bandwidthReward = node.performance.bandwidth * 0.01 * (uptimeSeconds / 3600); // Récompense par heure
+            const bandwidth = node.performance?.bandwidth || 0;
+            bandwidthReward = bandwidth * 0.01 * (uptimeSeconds / 3600); // Récompense par heure
             node.rewards.dailyReward += bandwidthReward;
             node.rewards.totalEarned += bandwidthReward;
             node.rewards.lastRewardCalculation = new Date();
