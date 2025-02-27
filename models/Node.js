@@ -12,6 +12,30 @@ const nodeSchema = new mongoose.Schema({
     enum: ['HOST', 'USER'],
     required: true
   },
+  active: {
+    type: Boolean,
+    default: false
+  },
+  ip: {
+    type: String,
+    default: null
+  },
+  bandwidth: {
+    type: Number,
+    default: 0
+  },
+  connectedUsers: {
+    type: Number,
+    default: 0
+  },
+  uptime: {
+    type: Number,
+    default: 0
+  },
+  lastSeen: {
+    type: Date,
+    default: Date.now
+  },
   status: {
     type: String,
     enum: ['ACTIVE', 'INACTIVE', 'BANNED'],

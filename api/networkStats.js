@@ -3,7 +3,7 @@ const Node = require('../models/Node');
 const logger = require('../utils/logger');
 const router = express.Router();
 
-router.get('/network-stats', async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     // Récupérer les statistiques depuis MongoDB
     const totalNodes = await Node.countDocuments();
