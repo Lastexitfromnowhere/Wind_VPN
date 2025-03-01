@@ -410,8 +410,7 @@ app.get('/api/available-nodes', auth, async (req, res) => {
                 return false;
             }
             
-            // Vérifier le format de l'adresse wallet (ne pas filtrer les adresses Ethereum)
-            // Nous acceptons maintenant toutes les adresses, qu'elles commencent par 0x ou non
+            // Vérifier le format de l'adresse wallet (accepter toutes les adresses)
             logger.info(`Adresse wallet du nœud: ${node.walletAddress.substring(0, 10)}... - Type: ${node.walletAddress.startsWith('0x') ? 'Ethereum' : 'Solana'}`);
             
             // Vérifier si le nœud est actif ou a été vu récemment
@@ -433,10 +432,8 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         // Calculer un score pour chaque nœud basé sur ses performances
         const nodesWithScore = filteredNodes
             .filter(node => {
-                // Vérifier que l'adresse wallet est valide et qu'il s'agit d'une adresse Solana (ne commence pas par 0x)
-                return node.walletAddress && 
-                       node.walletAddress.length > 0 && 
-                       !node.walletAddress.startsWith('0x'); // Filtrer les adresses non-Solana
+                // Vérifier que l'adresse wallet est valide (ne pas filtrer par format d'adresse)
+                return node.walletAddress && node.walletAddress.length > 0;
             })
             .map(node => {
                 try {
