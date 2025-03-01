@@ -8,7 +8,7 @@ const { calculateVPNRewards, getRewardMultipliers } = require('../utils/rewardsU
 const { redisClient } = require('../utils/redis');
 
 // Endpoint pour récupérer les informations de récompenses
-router.get('/rewards', authenticateJWT, async (req, res) => {
+router.get('/dailyClaims', authenticateJWT, async (req, res) => {
   try {
     const walletAddress = req.user.walletAddress;
     
@@ -85,7 +85,7 @@ router.get('/rewards', authenticateJWT, async (req, res) => {
 });
 
 // Endpoint pour réclamer les récompenses quotidiennes
-router.post('/claim-rewards', authenticateJWT, async (req, res) => {
+router.post('/dailyClaims/claim', authenticateJWT, async (req, res) => {
   try {
     const walletAddress = req.user.walletAddress;
     
