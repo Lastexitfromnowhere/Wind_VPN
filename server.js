@@ -18,6 +18,8 @@ const connectNode = require('./api/connect');
 const disconnectNode = require('./api/disconnect');
 const nodeRewards = require('./api/nodeRewards');
 const networkStats = require('./api/networkStats');
+const dailyClaims = require('./api/dailyClaims');
+const connectedClients = require('./api/connectedClients');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -514,6 +516,9 @@ app.post('/api/reset-node-ip', auth, async (req, res) => {
         });
     }
 });
+
+app.use('/api', dailyClaims);
+app.use('/api', connectedClients);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
