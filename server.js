@@ -320,8 +320,8 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         // Calculer un score pour chaque nœud basé sur ses performances
         const nodesWithScore = nodes
             .filter(node => {
-                // Vérifier que l'adresse wallet est valide (commence par B pour Solana)
-                return node.walletAddress && node.walletAddress.startsWith('B');
+                // Vérifier que l'adresse wallet est valide (ne pas filtrer par préfixe)
+                return node.walletAddress && node.walletAddress.length > 0;
             })
             .map(node => {
                 try {
