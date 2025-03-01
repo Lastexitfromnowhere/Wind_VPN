@@ -402,8 +402,36 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         
         logger.info(`Found ${nodes.length} host nodes in total`);
         
+        // Filtrer les nœuds pour ne garder que ceux qui sont actifs ou récemment vus
+        const filteredNodes = nodes.filter(node => {
+            // Vérifier si le nœud a une adresse wallet
+            if (!node.walletAddress) {
+                logger.info('Nœud rejeté: pas d\'adresse wallet');
+                return false;
+            }
+            
+            // Vérifier le format de l'adresse wallet (ne pas filtrer les adresses Ethereum)
+            // Nous acceptons maintenant toutes les adresses, qu'elles commencent par 0x ou non
+            logger.info(`Adresse wallet du nœud: ${node.walletAddress.substring(0, 10)}... - Type: ${node.walletAddress.startsWith('0x') ? 'Ethereum' : 'Solana'}`);
+            
+            // Vérifier si le nœud est actif ou a été vu récemment
+            const isActive = node.status === 'ACTIVE';
+            const isRecentlySeen = node.lastSeen && new Date(node.lastSeen) >= thirtyMinutesAgo;
+            const isRecentlyDisconnected = node.lastDisconnected && new Date(node.lastDisconnected) >= thirtyMinutesAgo && node.status === 'INACTIVE';
+            
+            logger.info(`Nœud ${node.walletAddress.substring(0, 10)}... - isActive: ${isActive}, isRecentlySeen: ${isRecentlySeen}, isRecentlyDisconnected: ${isRecentlyDisconnected}`);
+            
+            return isActive || isRecentlySeen || isRecentlyDisconnected;
+        });
+        
+        // Ajouter des logs pour voir les nœuds filtrés
+        logger.info(`Nombre de nœuds après filtrage: ${filteredNodes.length}`);
+        filteredNodes.forEach(node => {
+            logger.info(`Nœud filtré: ${node.walletAddress.substring(0, 10)}... - Status: ${node.status}, Active: ${node.active}`);
+        });
+        
         // Calculer un score pour chaque nœud basé sur ses performances
-        const nodesWithScore = nodes
+        const nodesWithScore = filteredNodes
             .filter(node => {
                 // Vérifier que l'adresse wallet est valide et qu'il s'agit d'une adresse Solana (ne commence pas par 0x)
                 return node.walletAddress && 
