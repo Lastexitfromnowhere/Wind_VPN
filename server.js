@@ -325,15 +325,40 @@ app.get('/api/available-nodes', auth, async (req, res) => {
                 logger.info(`Nœud trouvé - Wallet: ${walletPrefix}..., Status: ${node.status || 'Unknown'}, Active: ${node.active !== undefined ? node.active : 'Unknown'}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}, NodeType: ${node.nodeType || 'Unknown'}`);
                 
                 // Vérifier et corriger les incohérences entre status et active
-                if (node.status === 'ACTIVE' && !node.active) {
+                let needsUpdate = false;
+                let updateFields = {};
+                
+                // Cas 1: Status ACTIVE mais active false
+                if (node.status === 'ACTIVE' && node.active === false) {
                     logger.info(`Correction d'incohérence pour ${walletPrefix}... - Status ACTIVE mais active false`);
-                    node.active = true;
+                    updateFields.active = true;
+                    needsUpdate = true;
+                }
+                
+                // Cas 2: Status INACTIVE mais active true
+                if (node.status === 'INACTIVE' && node.active === true) {
+                    logger.info(`Correction d'incohérence pour ${walletPrefix}... - Status INACTIVE mais active true`);
+                    updateFields.status = 'ACTIVE';
+                    needsUpdate = true;
+                }
+                
+                // Cas 3: Nœud vu récemment (moins de 30 minutes) mais INACTIVE
+                if (node.lastSeen && new Date(node.lastSeen) >= thirtyMinutesAgo && node.status === 'INACTIVE') {
+                    logger.info(`Correction d'incohérence pour ${walletPrefix}... - Vu récemment mais status INACTIVE`);
+                    updateFields.status = 'ACTIVE';
+                    updateFields.active = true;
+                    needsUpdate = true;
+                }
+                
+                if (needsUpdate) {
                     updatePromises.push(
                         Node.updateOne(
                             { walletAddress: node.walletAddress }, 
-                            { $set: { active: true } }
+                            { $set: updateFields }
                         ).then(() => {
                             logger.info(`Incohérence corrigée pour ${walletPrefix}...`);
+                            // Mettre à jour l'objet node en mémoire aussi
+                            Object.assign(node, updateFields);
                         }).catch(err => {
                             logger.error(`Erreur lors de la correction de l'incohérence pour ${walletPrefix}...`, err);
                         })
