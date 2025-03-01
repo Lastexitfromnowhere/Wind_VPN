@@ -4,7 +4,7 @@ const router = express.Router();
 const { authenticateJWT } = require('../middleware/auth');
 const User = require('../models/User');
 const Node = require('../models/Node');
-const { calculateVPNRewards, getRewardMultipliers } = require('../utils/rewardsUtils');
+const { calculateVPNRewards, calculateLocationMultiplier, getDemandMultiplier } = require('../utils/rewardsUtils');
 const { redisClient } = require('../utils/redis');
 
 // Endpoint pour récupérer les informations de récompenses

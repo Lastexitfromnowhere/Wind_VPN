@@ -223,5 +223,7 @@ async function calculateVPNRewards(walletAddress) {
 module.exports = {
   initNodeStats,
   calculateVPNRewards,
+  calculateLocationMultiplier,
+  getDemandMultiplier,
   REWARD_FACTORS
 };
