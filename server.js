@@ -287,6 +287,18 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
         
         // Rechercher tous les nœuds de type HOST qui sont soit actifs, soit ont été vus récemment
+        const allNodes = await Node.find({});
+        logger.info(`Total nodes in database (all types): ${allNodes.length}`);
+        
+        // Logs pour chaque nœud dans la base de données
+        allNodes.forEach(node => {
+            const walletPrefix = node.walletAddress && node.walletAddress.length > 8 
+                ? node.walletAddress.substring(0, 8) 
+                : (node.walletAddress || 'Unknown');
+            
+            logger.info(`DB Node - Wallet: ${walletPrefix}..., Type: ${node.nodeType}, Status: ${node.status}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
+        });
+        
         const nodes = await Node.find({ 
             nodeType: 'HOST',
             $or: [
