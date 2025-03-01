@@ -321,7 +321,18 @@ app.get('/api/available-nodes', auth, async (req, res) => {
                     ? node.walletAddress.substring(0, 8) 
                     : (node.walletAddress || 'Unknown');
                     
-                logger.info(`Nœud trouvé - Wallet: ${walletPrefix}..., Status: ${node.status || 'Unknown'}, Active: ${node.active !== undefined ? node.active : 'Unknown'}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
+                logger.info(`Nœud trouvé - Wallet: ${walletPrefix}..., Status: ${node.status || 'Unknown'}, Active: ${node.active !== undefined ? node.active : 'Unknown'}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}, NodeType: ${node.nodeType || 'Unknown'}`);
+                
+                // Vérifier et corriger les incohérences entre status et active
+                if (node.status === 'ACTIVE' && !node.active) {
+                    logger.info(`Correction d'incohérence pour ${walletPrefix}... - Status ACTIVE mais active false`);
+                    node.active = true;
+                    node.save().then(() => {
+                        logger.info(`Incohérence corrigée pour ${walletPrefix}...`);
+                    }).catch(err => {
+                        logger.error(`Erreur lors de la correction de l'incohérence pour ${walletPrefix}...`, err);
+                    });
+                }
             } catch (error) {
                 logger.error('Erreur lors du log du nœud:', error);
             }
