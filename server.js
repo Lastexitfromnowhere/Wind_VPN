@@ -312,7 +312,44 @@ app.get('/api/available-nodes', auth, async (req, res) => {
                     status: 'INACTIVE'
                 }
             ]
-        }).select('walletAddress ip location performance lastSeen connectedUsers status active -_id');
+        }).select('walletAddress ip location performance lastSeen connectedUsers status active nodeType -_id');
+        
+        // Corriger les incohérences entre status et active pour tous les nœuds avant de continuer
+        const updatePromises = [];
+        for (const node of nodes) {
+            try {
+                const walletPrefix = node.walletAddress && node.walletAddress.length > 8 
+                    ? node.walletAddress.substring(0, 8) 
+                    : (node.walletAddress || 'Unknown');
+                    
+                logger.info(`Nœud trouvé - Wallet: ${walletPrefix}..., Status: ${node.status || 'Unknown'}, Active: ${node.active !== undefined ? node.active : 'Unknown'}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}, NodeType: ${node.nodeType || 'Unknown'}`);
+                
+                // Vérifier et corriger les incohérences entre status et active
+                if (node.status === 'ACTIVE' && !node.active) {
+                    logger.info(`Correction d'incohérence pour ${walletPrefix}... - Status ACTIVE mais active false`);
+                    node.active = true;
+                    updatePromises.push(
+                        Node.updateOne(
+                            { walletAddress: node.walletAddress }, 
+                            { $set: { active: true } }
+                        ).then(() => {
+                            logger.info(`Incohérence corrigée pour ${walletPrefix}...`);
+                        }).catch(err => {
+                            logger.error(`Erreur lors de la correction de l'incohérence pour ${walletPrefix}...`, err);
+                        })
+                    );
+                }
+            } catch (error) {
+                logger.error('Erreur lors du log du nœud:', error);
+            }
+        }
+        
+        // Attendre que toutes les mises à jour soient terminées
+        if (updatePromises.length > 0) {
+            logger.info(`Correction de ${updatePromises.length} incohérences...`);
+            await Promise.all(updatePromises);
+            logger.info(`Corrections terminées.`);
+        }
         
         // Ajouter des logs détaillés pour chaque nœud trouvé
         nodes.forEach(node => {
@@ -343,8 +380,10 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         // Calculer un score pour chaque nœud basé sur ses performances
         const nodesWithScore = nodes
             .filter(node => {
-                // Vérifier que l'adresse wallet est valide (ne pas filtrer par préfixe)
-                return node.walletAddress && node.walletAddress.length > 0;
+                // Vérifier que l'adresse wallet est valide et qu'il s'agit d'une adresse Solana (ne commence pas par 0x)
+                return node.walletAddress && 
+                       node.walletAddress.length > 0 && 
+                       !node.walletAddress.startsWith('0x'); // Filtrer les adresses non-Solana
             })
             .map(node => {
                 try {
@@ -382,6 +421,7 @@ app.get('/api/available-nodes', auth, async (req, res) => {
                         lastSeen: node.lastSeen || new Date(),
                         connectedUsers: node.connectedUsers || 0,
                         status: node.status || 'INACTIVE',
+                        active: node.active || false,
                         score: parseFloat(totalScore.toFixed(2))
                     };
                     
@@ -405,13 +445,19 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         // Trier les nœuds par score (du plus élevé au plus bas)
         nodesWithScore.sort((a, b) => b.score - a.score);
         
-        logger.info(`Returning ${nodesWithScore.length} valid nodes with scores`);
-        logger.debug('Nodes data sample:', nodesWithScore.length > 0 ? nodesWithScore[0] : 'No nodes available');
+        // Ajouter un log pour les nœuds qui seront renvoyés
+        const validNodes = nodesWithScore.filter(node => {
+            // Inclure les nœuds actifs ou ceux vus récemment
+            return node.status === 'ACTIVE' || 
+                   (node.lastSeen && new Date(node.lastSeen) >= thirtyMinutesAgo);
+        });
+        
+        logger.info(`Returning ${validNodes.length} valid nodes with scores`);
         
         res.json({
             success: true,
-            count: nodesWithScore.length,
-            nodes: nodesWithScore
+            count: validNodes.length,
+            nodes: validNodes
         });
     } catch (error) {
         logger.error('Error fetching available nodes:', error);
