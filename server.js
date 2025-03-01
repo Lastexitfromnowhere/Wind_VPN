@@ -92,7 +92,8 @@ app.get('/', (req, res) => {
             { path: '/api/reset-node-ip', method: 'POST', description: 'Reset node IP' },
             { path: '/api/test-node-connection', method: 'GET', description: 'Test connection to a VPN node' },
             { path: '/api/available-nodes', method: 'GET', description: 'Get available VPN nodes' },
-            { path: '/api/connect-to-node', method: 'POST', description: 'Connect to a specific node' }
+            { path: '/api/connect-to-node', method: 'POST', description: 'Connect to a specific node' },
+            { path: '/api/client-disconnect', method: 'POST', description: 'Disconnect from a node' }
         ],
         documentation: 'For more information, please refer to the API documentation'
     });
@@ -462,6 +463,87 @@ app.post('/api/connect-to-node', auth, async (req, res) => {
         });
     } catch (error) {
         logger.error('Error connecting to node:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error',
+            error: error.message
+        });
+    }
+});
+
+// Endpoint pour qu'un client se déconnecte d'un nœud
+app.post('/api/client-disconnect', auth, async (req, res) => {
+    try {
+        const { clientWalletAddress } = req.body;
+        const walletAddress = req.headers['x-wallet-address'] || clientWalletAddress;
+        
+        if (!walletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Client wallet address is required'
+            });
+        }
+        
+        const Node = mongoose.model('Node');
+        
+        // Trouver le nœud client
+        const clientNode = await Node.findOne({ 
+            walletAddress: walletAddress,
+            nodeType: 'USER',
+            status: 'ACTIVE'
+        });
+        
+        if (!clientNode) {
+            return res.status(404).json({
+                success: false,
+                message: 'Active client node not found'
+            });
+        }
+        
+        // Récupérer l'adresse du nœud hôte auquel le client est connecté
+        const hostWalletAddress = clientNode.connectedToHost;
+        
+        if (!hostWalletAddress) {
+            return res.status(400).json({
+                success: false,
+                message: 'Client is not connected to any host'
+            });
+        }
+        
+        // Mettre à jour le nœud client
+        clientNode.status = 'INACTIVE';
+        clientNode.connectedToHost = null;
+        clientNode.lastSeen = new Date();
+        await clientNode.save();
+        
+        // Mettre à jour le nœud hôte (décrémenter le nombre d'utilisateurs connectés)
+        const hostNode = await Node.findOne({ walletAddress: hostWalletAddress });
+        if (hostNode) {
+            hostNode.connectedUsers = Math.max((hostNode.connectedUsers || 1) - 1, 0);
+            await hostNode.save();
+        }
+        
+        // Mettre à jour la connexion dans la collection Connection si elle existe
+        const Connection = mongoose.model('Connection');
+        const connection = await Connection.findOne({
+            clientWalletAddress: walletAddress,
+            hostWalletAddress: hostWalletAddress,
+            status: 'ACTIVE'
+        });
+        
+        if (connection) {
+            connection.status = 'DISCONNECTED';
+            connection.disconnectedAt = new Date();
+            connection.lastActivity = new Date();
+            await connection.save();
+        }
+        
+        res.json({
+            success: true,
+            message: 'Disconnected from node successfully'
+        });
+    } catch (error) {
+        logger.error('Error disconnecting client from node:', error);
         res.status(500).json({
             success: false,
             message: 'Server error',
