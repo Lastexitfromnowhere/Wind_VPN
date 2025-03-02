@@ -111,13 +111,20 @@ try {
   dailyClaims = require('./api/dailyClaims');
   connectedClients = require('./api/connectedClients');
 
-  // Utiliser les routes
-  app.use('/api', connectNode);
-  app.use('/api', disconnectNode);
-  app.use('/api', nodeRewards);
-  app.use('/api', networkStats);
-  app.use('/api', dailyClaims);
-  app.use('/api', connectedClients);
+  // Utiliser les routes - vérifier le type d'export
+  if (typeof dailyClaims === 'function') {
+    // Si c'est une fonction middleware directe
+    app.use('/api/dailyClaims', dailyClaims);
+  } else if (dailyClaims && typeof dailyClaims === 'object') {
+    // Si c'est un routeur Express
+    app.use('/api', dailyClaims);
+  }
+
+  if (typeof connectedClients === 'function') {
+    app.use('/api/connectedClients', connectedClients);
+  } else if (connectedClients && typeof connectedClients === 'object') {
+    app.use('/api', connectedClients);
+  }
 } catch (error) {
   logger.error('Error importing or using routes:', error);
 }
