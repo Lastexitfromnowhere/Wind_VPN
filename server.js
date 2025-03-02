@@ -285,34 +285,41 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         
         // Calculer la date limite pour les nœuds actifs (30 minutes)
         const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+        logger.info(`Limite de temps pour les nœuds actifs: ${thirtyMinutesAgo.toISOString()}`);
         
-        // Rechercher tous les nœuds de type HOST qui sont soit actifs, soit ont été vus récemment
-        const allNodes = await Node.find({});
-        logger.info(`Total nodes in database (all types): ${allNodes.length}`);
+        // Ajouter des logs pour les adresses spécifiques
+        const specialAddresses = [
+            'BmtYvq2KvNkXtc9VFKVvW9rbzRzthFiCgS2eXrhovAPU', // PC1 ou PC2
+            'GD3oxRGF8RKLm6hmEzCRarWtWCZEErMJDEfb49yDxrEm'  // PC3
+        ];
         
-        // Logs pour chaque nœud dans la base de données
+        // Vérifier si ces adresses existent dans la base de données
+        for (const address of specialAddresses) {
+            const nodeExists = await Node.findOne({ walletAddress: address });
+            logger.info(`Vérification de l'adresse spéciale ${address.substring(0, 10)}... - Existe dans la DB: ${nodeExists ? 'Oui' : 'Non'}`);
+            if (nodeExists) {
+                logger.info(`Détails du nœud ${address.substring(0, 10)}... - Status: ${nodeExists.status}, Active: ${nodeExists.active}, LastSeen: ${nodeExists.lastSeen ? new Date(nodeExists.lastSeen).toISOString() : 'N/A'}, NodeType: ${nodeExists.nodeType}`);
+            }
+        }
+        
+        // Récupérer TOUS les nœuds HOST sans aucun filtre initial
+        const allNodes = await Node.find({ 
+            nodeType: 'HOST'
+        }).select('walletAddress ip location performance lastSeen connectedUsers status active nodeType lastDisconnected -_id');
+        
+        logger.info(`Nombre total de nœuds HOST dans la base de données: ${allNodes.length}`);
+        
+        // Logs pour tous les nœuds trouvés
         allNodes.forEach(node => {
-            const walletPrefix = node.walletAddress && node.walletAddress.length > 8 
-                ? node.walletAddress.substring(0, 8) 
-                : (node.walletAddress || 'Unknown');
-            
-            logger.info(`DB Node - Wallet: ${walletPrefix}..., Type: ${node.nodeType}, Status: ${node.status}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
+            logger.info(`Nœud HOST trouvé - Wallet: ${node.walletAddress.substring(0, 10)}..., Status: ${node.status}, Active: ${node.active}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
         });
         
-        const nodes = await Node.find({ 
-            nodeType: 'HOST',
-            $or: [
-                // Nœuds actifs
-                { status: 'ACTIVE' },
-                // Nœuds qui ont été vus récemment
-                { lastSeen: { $gte: thirtyMinutesAgo } },
-                // Nœuds qui ont été déconnectés récemment mais qui sont toujours des hôtes
-                { 
-                    lastDisconnected: { $gte: thirtyMinutesAgo },
-                    status: 'INACTIVE'
-                }
-            ]
-        }).select('walletAddress ip location performance lastSeen connectedUsers status active nodeType -_id');
+        // Maintenant, appliquer le filtre pour les nœuds actifs ou récemment vus
+        const nodes = allNodes.filter(node => {
+            return node.status === 'ACTIVE' || 
+                  (node.lastSeen && new Date(node.lastSeen) >= thirtyMinutesAgo) || 
+                  (node.lastDisconnected && new Date(node.lastDisconnected) >= thirtyMinutesAgo && node.status === 'INACTIVE');
+        });
         
         // Corriger les incohérences entre status et active pour tous les nœuds avant de continuer
         const updatePromises = [];
@@ -376,75 +383,26 @@ app.get('/api/available-nodes', auth, async (req, res) => {
             logger.info(`Corrections terminées.`);
         }
         
-        // Ajouter des logs détaillés pour chaque nœud trouvé
-        nodes.forEach(node => {
-            try {
-                const walletPrefix = node.walletAddress && node.walletAddress.length > 8 
-                    ? node.walletAddress.substring(0, 8) 
-                    : (node.walletAddress || 'Unknown');
-                    
-                logger.info(`Nœud trouvé - Wallet: ${walletPrefix}..., Status: ${node.status || 'Unknown'}, Active: ${node.active !== undefined ? node.active : 'Unknown'}, LastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}, NodeType: ${node.nodeType || 'Unknown'}`);
-                
-                // Vérifier et corriger les incohérences entre status et active
-                if (node.status === 'ACTIVE' && !node.active) {
-                    logger.info(`Correction d'incohérence pour ${walletPrefix}... - Status ACTIVE mais active false`);
-                    node.active = true;
-                    node.save().then(() => {
-                        logger.info(`Incohérence corrigée pour ${walletPrefix}...`);
-                    }).catch(err => {
-                        logger.error(`Erreur lors de la correction de l'incohérence pour ${walletPrefix}...`, err);
-                    });
-                }
-            } catch (error) {
-                logger.error('Erreur lors du log du nœud:', error);
-            }
-        });
-        
-        logger.info(`Found ${nodes.length} host nodes in total`);
-        
-        // Filtrer les nœuds pour ne garder que ceux qui sont actifs ou récemment vus
-        const filteredNodes = nodes.filter(node => {
-            // Vérifier si le nœud a une adresse wallet
-            if (!node.walletAddress) {
-                logger.info('Nœud rejeté: pas d\'adresse wallet');
-                return false;
-            }
-            
-            // Vérifier le format de l'adresse wallet (accepter toutes les adresses)
-            logger.info(`Adresse wallet du nœud: ${node.walletAddress.substring(0, 10)}... - Type: ${node.walletAddress.startsWith('0x') ? 'Ethereum' : 'Solana'}`);
-            
-            // Vérifier si le nœud est actif ou a été vu récemment
-            const isActive = node.status === 'ACTIVE';
-            const isRecentlySeen = node.lastSeen && new Date(node.lastSeen) >= thirtyMinutesAgo;
-            const isRecentlyDisconnected = node.lastDisconnected && new Date(node.lastDisconnected) >= thirtyMinutesAgo && node.status === 'INACTIVE';
-            
-            logger.info(`Nœud ${node.walletAddress.substring(0, 10)}... - isActive: ${isActive}, isRecentlySeen: ${isRecentlySeen}, isRecentlyDisconnected: ${isRecentlyDisconnected}`);
-            
-            return isActive || isRecentlySeen || isRecentlyDisconnected;
-        });
-        
         // Ajouter des logs pour voir les nœuds filtrés
-        logger.info(`Nombre de nœuds après filtrage: ${filteredNodes.length}`);
-        filteredNodes.forEach(node => {
-            const isSpecialNode = node.walletAddress === 'BmtYvq2KvNkXtc9VFKVvW9rbzRzthFiCgS2eXrhovAPU';
-            logger.info(`Nœud filtré: ${node.walletAddress.substring(0, 10)}... - Status: ${node.status}, Active: ${node.active}, Est le nœud spécial: ${isSpecialNode}`);
+        logger.info(`Nombre de nœuds après filtrage: ${nodes.length}`);
+        nodes.forEach(node => {
+            const isSpecialNode = specialAddresses.includes(node.walletAddress);
+            logger.info(`Nœud filtré: ${node.walletAddress} - Status: ${node.status}, Active: ${node.active}, Est un nœud spécial: ${isSpecialNode}`);
             
-            // Si c'est le nœud spécial ou un autre nœud Solana, afficher toutes ses propriétés pour comparaison
-            if (isSpecialNode || (!node.walletAddress.startsWith('0x') && node.walletAddress !== 'BmtYvq2KvNkXtc9VFKVvW9rbzRzthFiCgS2eXrhovAPU')) {
-              logger.info(`Propriétés complètes du nœud ${isSpecialNode ? 'spécial' : 'autre Solana'} ${node.walletAddress.substring(0, 10)}...:`);
-              logger.info(`- nodeType: ${node.nodeType}`);
-              logger.info(`- status: ${node.status}`);
-              logger.info(`- active: ${node.active}`);
-              logger.info(`- lastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
-              logger.info(`- lastDisconnected: ${node.lastDisconnected ? new Date(node.lastDisconnected).toISOString() : 'N/A'}`);
-              logger.info(`- ip: ${node.ip || 'N/A'}`);
-              logger.info(`- connectedUsers: ${node.connectedUsers || 0}`);
-              logger.info(`- connectedToHost: ${node.connectedToHost || 'N/A'}`);
-            }
+            // Afficher toutes les propriétés pour tous les nœuds pour faciliter le débogage
+            logger.info(`Propriétés complètes du nœud ${node.walletAddress}:`);
+            logger.info(`- nodeType: ${node.nodeType}`);
+            logger.info(`- status: ${node.status}`);
+            logger.info(`- active: ${node.active}`);
+            logger.info(`- lastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
+            logger.info(`- lastDisconnected: ${node.lastDisconnected ? new Date(node.lastDisconnected).toISOString() : 'N/A'}`);
+            logger.info(`- ip: ${node.ip || 'N/A'}`);
+            logger.info(`- connectedUsers: ${node.connectedUsers || 0}`);
+            logger.info(`- connectedToHost: ${node.connectedToHost || 'N/A'}`);
         });
         
         // Calculer un score pour chaque nœud basé sur ses performances
-        const nodesWithScore = filteredNodes
+        const nodesWithScore = nodes
             .filter(node => {
                 // Vérifier que l'adresse wallet est valide (ne pas filtrer par format d'adresse)
                 return node.walletAddress && node.walletAddress.length > 0;
