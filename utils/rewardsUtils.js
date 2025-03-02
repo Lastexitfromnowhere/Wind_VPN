@@ -225,5 +225,6 @@ module.exports = {
   calculateVPNRewards,
   calculateLocationMultiplier,
   getDemandMultiplier,
-  REWARD_FACTORS
+  REWARD_FACTORS,
+  redisClient
 };
