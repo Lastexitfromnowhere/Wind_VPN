@@ -1,15 +1,15 @@
 // api/dailyClaims.js
 const express = require('express');
 const router = express.Router();
-const { authenticateJWT } = require('../middleware/auth');
+const auth = require('../middleware/auth');
 const User = require('../models/User');
 const Node = require('../models/Node');
 const { calculateVPNRewards, calculateLocationMultiplier, getDemandMultiplier, redisClient } = require('../utils/rewardsUtils');
 
 // Endpoint pour récupérer les informations de récompenses
-router.get('/dailyClaims', authenticateJWT, async (req, res) => {
+router.get('/dailyClaims', auth, async (req, res) => {
   try {
-    const walletAddress = req.user.walletAddress;
+    const walletAddress = req.walletAddress;
     
     if (!walletAddress) {
       return res.status(400).json({ 
@@ -84,9 +84,9 @@ router.get('/dailyClaims', authenticateJWT, async (req, res) => {
 });
 
 // Endpoint pour réclamer les récompenses quotidiennes
-router.post('/dailyClaims/claim', authenticateJWT, async (req, res) => {
+router.post('/dailyClaims/claim', auth, async (req, res) => {
   try {
-    const walletAddress = req.user.walletAddress;
+    const walletAddress = req.walletAddress;
     
     if (!walletAddress) {
       return res.status(400).json({ 
@@ -112,36 +112,35 @@ router.post('/dailyClaims/claim', authenticateJWT, async (req, res) => {
     if (lastClaimDate) {
       const timeSinceLastClaim = now.getTime() - new Date(lastClaimDate).getTime();
       if (timeSinceLastClaim < oneDayInMs) {
-        // Calculer le temps restant avant la prochaine réclamation
         const timeRemaining = oneDayInMs - timeSinceLastClaim;
         const nextClaim = new Date(now.getTime() + timeRemaining);
         
-        return res.status(400).json({ 
-          success: false, 
-          message: 'You can only claim rewards once per day', 
-          nextClaimTime: nextClaim.toISOString() 
+        return res.status(400).json({
+          success: false,
+          message: 'You can only claim rewards once per day',
+          nextClaimTime: nextClaim.toISOString()
         });
       }
     }
 
     // Calculer les récompenses disponibles
     const rewards = await calculateVPNRewards(walletAddress);
+    
+    // Mettre à jour l'utilisateur avec les nouvelles récompenses
     const claimedAmount = rewards.totalRewards;
-
-    // Mettre à jour l'utilisateur avec les nouvelles informations de réclamation
-    const claimRecord = {
-      amount: claimedAmount,
-      timestamp: now,
-      status: 'success'
-    };
-
-    // Mettre à jour l'utilisateur
+    
     await User.findOneAndUpdate(
       { walletAddress },
       { 
         $set: { lastRewardClaim: now },
-        $push: { rewardClaims: claimRecord },
-        $inc: { totalRewardsClaimed: claimedAmount }
+        $inc: { totalRewardsClaimed: claimedAmount },
+        $push: { 
+          rewardClaims: {
+            amount: claimedAmount,
+            timestamp: now,
+            status: 'success'
+          }
+        }
       },
       { new: true }
     );
@@ -149,7 +148,7 @@ router.post('/dailyClaims/claim', authenticateJWT, async (req, res) => {
     // Réinitialiser les récompenses accumulées dans Redis
     await redisClient.del(`rewards:${walletAddress}`);
 
-    // Calculer le temps pour la prochaine réclamation
+    // Calculer le temps avant la prochaine réclamation
     const nextClaimTime = new Date(now.getTime() + oneDayInMs).toISOString();
 
     return res.json({
