@@ -92,7 +92,11 @@ app.get('/', (req, res) => {
 });
 
 // Swagger docs
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(require('./swagger')));
+try {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(require('./swagger')));
+} catch (error) {
+  logger.error('Error loading Swagger documentation:', error);
+}
 
 // Déclaration des variables de routes
 let connectNode, disconnectNode, nodeRewards, networkStats, dailyClaims, connectedClients;
