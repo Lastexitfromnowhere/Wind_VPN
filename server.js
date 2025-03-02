@@ -13,14 +13,6 @@ const logger = require('./utils/logger');
 const securityMiddleware = require('./middleware/security');
 const auth = require('./middleware/auth');
 
-// Import routes
-const connectNode = require('./api/connect');
-const disconnectNode = require('./api/disconnect');
-const nodeRewards = require('./api/nodeRewards');
-const networkStats = require('./api/networkStats');
-const dailyClaims = require('./api/dailyClaims');
-const connectedClients = require('./api/connectedClients');
-
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -99,11 +91,38 @@ app.get('/', (req, res) => {
     });
 });
 
-// Protected routes
-app.post('/api/connect', auth, connectNode);
-app.post('/api/disconnect', auth, disconnectNode);
-app.get('/api/node-rewards/:walletAddress', auth, nodeRewards);
-app.use('/api/network-stats', networkStats);
+// Swagger docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(require('./swagger')));
+
+// Déclaration des variables de routes
+let connectNode, disconnectNode, nodeRewards, networkStats, dailyClaims, connectedClients;
+
+// Routes
+try {
+  // Import routes
+  connectNode = require('./api/connect');
+  disconnectNode = require('./api/disconnect');
+  nodeRewards = require('./api/nodeRewards');
+  networkStats = require('./api/networkStats');
+  dailyClaims = require('./api/dailyClaims');
+  connectedClients = require('./api/connectedClients');
+
+  // Utiliser les routes
+  app.use('/api', connectNode);
+  app.use('/api', disconnectNode);
+  app.use('/api', nodeRewards);
+  app.use('/api', networkStats);
+  app.use('/api', dailyClaims);
+  app.use('/api', connectedClients);
+} catch (error) {
+  logger.error('Error importing or using routes:', error);
+}
+
+// Protected routes - Vérifier si les routes sont disponibles avant de les utiliser
+if (connectNode) app.post('/api/connect', auth, connectNode);
+if (disconnectNode) app.post('/api/disconnect', auth, disconnectNode);
+if (nodeRewards) app.get('/api/node-rewards/:walletAddress', auth, nodeRewards);
+if (networkStats) app.use('/api/network-stats', networkStats);
 
 // Node status route
 app.get('/api/status', auth, async (req, res) => {
@@ -689,9 +708,6 @@ app.post('/api/reset-node-ip', auth, async (req, res) => {
         });
     }
 });
-
-app.use('/api', dailyClaims);
-app.use('/api', connectedClients);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
