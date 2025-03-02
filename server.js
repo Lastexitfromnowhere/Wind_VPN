@@ -426,7 +426,21 @@ app.get('/api/available-nodes', auth, async (req, res) => {
         // Ajouter des logs pour voir les nœuds filtrés
         logger.info(`Nombre de nœuds après filtrage: ${filteredNodes.length}`);
         filteredNodes.forEach(node => {
-            logger.info(`Nœud filtré: ${node.walletAddress.substring(0, 10)}... - Status: ${node.status}, Active: ${node.active}`);
+            const isSpecialNode = node.walletAddress === 'BmtYvq2KvNkXtc9VFKVvW9rbzRzthFiCgS2eXrhovAPU';
+            logger.info(`Nœud filtré: ${node.walletAddress.substring(0, 10)}... - Status: ${node.status}, Active: ${node.active}, Est le nœud spécial: ${isSpecialNode}`);
+            
+            // Si c'est le nœud spécial ou un autre nœud Solana, afficher toutes ses propriétés pour comparaison
+            if (isSpecialNode || (!node.walletAddress.startsWith('0x') && node.walletAddress !== 'BmtYvq2KvNkXtc9VFKVvW9rbzRzthFiCgS2eXrhovAPU')) {
+              logger.info(`Propriétés complètes du nœud ${isSpecialNode ? 'spécial' : 'autre Solana'} ${node.walletAddress.substring(0, 10)}...:`);
+              logger.info(`- nodeType: ${node.nodeType}`);
+              logger.info(`- status: ${node.status}`);
+              logger.info(`- active: ${node.active}`);
+              logger.info(`- lastSeen: ${node.lastSeen ? new Date(node.lastSeen).toISOString() : 'N/A'}`);
+              logger.info(`- lastDisconnected: ${node.lastDisconnected ? new Date(node.lastDisconnected).toISOString() : 'N/A'}`);
+              logger.info(`- ip: ${node.ip || 'N/A'}`);
+              logger.info(`- connectedUsers: ${node.connectedUsers || 0}`);
+              logger.info(`- connectedToHost: ${node.connectedToHost || 'N/A'}`);
+            }
         });
         
         // Calculer un score pour chaque nœud basé sur ses performances
