@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const promClient = require('prom-client');
+const { exec } = require('child_process');
 
 // Définir NODE_ENV en développement par défaut
 process.env.NODE_ENV = process.env.NODE_ENV || 'development';
@@ -16,7 +17,7 @@ const auth = require('./middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Configurer Express pour faire confiance au proxy de Render
+// Configurer Express pour faire confiance au proxy
 app.set('trust proxy', 1);
 
 // Prometheus metrics
@@ -99,9 +100,8 @@ try {
 }
 
 // Déclaration des variables de routes
-let connectNode, disconnectNode, nodeRewards, networkStats, dailyClaims, connectedClients;
+let connectNode, disconnectNode, nodeRewards, networkStats, dailyClaims, connectedClients, wireguardRoutes;
 
-// Routes
 try {
   // Import routes
   connectNode = require('./api/connect');
@@ -110,20 +110,25 @@ try {
   networkStats = require('./api/networkStats');
   dailyClaims = require('./api/dailyClaims');
   connectedClients = require('./api/connectedClients');
+  wireguardRoutes = require('./routes/wireguard');
 
-  // Utiliser les routes - vérifier le type d'export
-  if (typeof dailyClaims === 'function') {
-    // Si c'est une fonction middleware directe
+  // Utiliser les routes qui sont des objets router
+  if (networkStats && typeof networkStats === 'function') {
+    app.use('/api/network-stats', networkStats);
+  }
+
+  if (dailyClaims && typeof dailyClaims === 'function') {
     app.use('/api/dailyClaims', dailyClaims);
-  } else if (dailyClaims && typeof dailyClaims === 'object') {
-    // Si c'est un routeur Express
-    app.use('/api', dailyClaims);
   }
 
   if (typeof connectedClients === 'function') {
     app.use('/api/connectedClients', connectedClients);
   } else if (connectedClients && typeof connectedClients === 'object') {
     app.use('/api', connectedClients);
+  }
+  
+  if (wireguardRoutes && typeof wireguardRoutes === 'function') {
+    app.use('/api', wireguardRoutes);
   }
 } catch (error) {
   logger.error('Error importing or using routes:', error);
@@ -729,18 +734,64 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI)
-    .then(() => {
-        logger.info('Connected to MongoDB');
-        app.listen(PORT, () => {
-            logger.info(`Server running on port ${PORT}`);
-        });
-    })
-    .catch((error) => {
-        logger.error('MongoDB connection error:', error);
-        process.exit(1);
+// Activer l'IP Forwarding (nécessaire pour WireGuard)
+function enableIpForwarding() {
+  logger.info('Tentative d\'activation de l\'IP Forwarding...');
+  
+  // Méthode 1: Utiliser sysctl
+  exec('sysctl -w net.ipv4.ip_forward=1', (error, stdout, stderr) => {
+    if (error) {
+      logger.warn(`Échec de l'activation de l'IP Forwarding avec sysctl: ${error.message}`);
+      logger.info('Tentative avec la méthode alternative...');
+      
+      // Méthode 2: Écrire directement dans /proc
+      exec('echo 1 > /proc/sys/net/ipv4/ip_forward', (error2, stdout2, stderr2) => {
+        if (error2) {
+          logger.warn(`Échec de l'activation de l'IP Forwarding via /proc: ${error2.message}`);
+          logger.warn('L\'IP Forwarding n\'a pas pu être activé. WireGuard pourrait ne pas fonctionner correctement.');
+        } else {
+          logger.info('IP Forwarding activé avec succès via /proc.');
+        }
+      });
+    } else {
+      logger.info('IP Forwarding activé avec succès via sysctl.');
+    }
+    
+    // Vérifier l'état actuel
+    exec('cat /proc/sys/net/ipv4/ip_forward', (error3, stdout3, stderr3) => {
+      if (error3) {
+        logger.warn(`Impossible de vérifier l'état de l'IP Forwarding: ${error3.message}`);
+      } else {
+        logger.info(`État actuel de l'IP Forwarding: ${stdout3.trim()}`);
+      }
     });
+  });
+}
+
+// Initialiser la connexion MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => {
+    logger.info('Connected to MongoDB');
+    
+    // Démarrer le serveur
+    app.listen(PORT, () => {
+      logger.info(`Server running on port ${PORT}`);
+      
+      // Activer l'IP Forwarding pour WireGuard
+      enableIpForwarding();
+      
+      // Initialiser WireGuard si disponible
+      try {
+        const wireguardUtils = require('./utils/wireguardUtils');
+        wireguardUtils.initializeWireGuard();
+      } catch (error) {
+        logger.warn('WireGuard initialization failed:', error.message);
+      }
+    });
+  })
+  .catch(err => {
+    logger.error('MongoDB connection error:', err);
+  });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
