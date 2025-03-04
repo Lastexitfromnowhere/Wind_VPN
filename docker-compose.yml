@@ -18,6 +18,20 @@ services:
     sysctls:
       - net.ipv4.ip_forward=1
     privileged: true
+    depends_on:
+      - redis
+    environment:
+      - REDIS_URL=redis://redis:6379
+
+  redis:
+    image: redis:alpine
+    container_name: wind-vpn-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
 
 volumes:
   wireguard_data:
+  redis_data:
