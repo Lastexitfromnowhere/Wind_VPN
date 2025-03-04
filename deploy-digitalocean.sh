@@ -15,24 +15,73 @@ REMOTE_DIR="/opt/wind-vpn"
 
 echo "🚀 Déploiement vers Digital Ocean ($IP_DROPLET)..."
 
+# Installer sshpass si nécessaire
+if ! command -v sshpass &> /dev/null; then
+    echo "📦 Installation de sshpass pour l'authentification par mot de passe..."
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        brew install sshpass
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux
+        sudo apt-get update && sudo apt-get install -y sshpass
+    elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
+        # Windows avec Git Bash ou similaire
+        echo "⚠️ Sur Windows, veuillez installer sshpass manuellement ou utiliser WSL."
+        echo "Vous pouvez continuer sans sshpass, mais vous devrez saisir votre mot de passe plusieurs fois."
+    fi
+fi
+
+# Demander le mot de passe SSH
+read -sp "Entrez le mot de passe SSH pour $USER@$IP_DROPLET: " SSH_PASSWORD
+echo ""
+
+# Fonction pour exécuter des commandes SSH avec mot de passe
+run_ssh_command() {
+    if command -v sshpass &> /dev/null; then
+        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no $USER@$IP_DROPLET "$1"
+    else
+        ssh -o StrictHostKeyChecking=no $USER@$IP_DROPLET "$1"
+    fi
+}
+
+# Fonction pour copier des fichiers avec rsync et mot de passe
+run_rsync_command() {
+    if command -v sshpass &> /dev/null; then
+        sshpass -p "$SSH_PASSWORD" rsync $1 $USER@$IP_DROPLET:$2
+    else
+        rsync $1 $USER@$IP_DROPLET:$2
+    fi
+}
+
 # Vérifier la connexion SSH
 echo "📡 Vérification de la connexion SSH..."
-ssh -o BatchMode=yes -o ConnectTimeout=5 $USER@$IP_DROPLET echo "Connexion SSH réussie" || {
-    echo "❌ Échec de la connexion SSH. Vérifiez vos clés SSH et que le serveur est accessible."
-    exit 1
-}
+if command -v sshpass &> /dev/null; then
+    sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 $USER@$IP_DROPLET echo "Connexion SSH réussie" || {
+        echo "❌ Échec de la connexion SSH. Vérifiez votre mot de passe et que le serveur est accessible."
+        exit 1
+    }
+else
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 $USER@$IP_DROPLET echo "Connexion SSH réussie" || {
+        echo "❌ Échec de la connexion SSH. Vérifiez votre mot de passe et que le serveur est accessible."
+        exit 1
+    }
+fi
 
 # Créer le répertoire distant s'il n'existe pas
 echo "📁 Création du répertoire distant..."
-ssh $USER@$IP_DROPLET "mkdir -p $REMOTE_DIR"
+run_ssh_command "mkdir -p $REMOTE_DIR"
 
 # Copier les fichiers
 echo "📦 Copie des fichiers vers le serveur..."
-rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'logs' --exclude '.env' . $USER@$IP_DROPLET:$REMOTE_DIR
+if command -v sshpass &> /dev/null; then
+    sshpass -p "$SSH_PASSWORD" rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'logs' --exclude '.env' . $USER@$IP_DROPLET:$REMOTE_DIR
+else
+    rsync -avz --exclude 'node_modules' --exclude '.git' --exclude 'logs' --exclude '.env' . $USER@$IP_DROPLET:$REMOTE_DIR
+fi
 
 # Configurer le serveur
 echo "⚙️ Configuration du serveur..."
-ssh $USER@$IP_DROPLET "cd $REMOTE_DIR && \
+run_ssh_command "cd $REMOTE_DIR && \
     # Créer .env s'il n'existe pas
     if [ ! -f .env ]; then
         cp .env.production .env
@@ -61,7 +110,7 @@ ssh $USER@$IP_DROPLET "cd $REMOTE_DIR && \
 
 # Créer un service systemd
 echo "🔄 Configuration du service systemd..."
-ssh $USER@$IP_DROPLET "cat > /tmp/wind-vpn.service << 'EOL'
+run_ssh_command "cat > /tmp/wind-vpn.service << 'EOL'
 [Unit]
 Description=Wind VPN Service
 After=docker.service
@@ -85,7 +134,7 @@ sudo systemctl start wind-vpn"
 
 # Vérifier le statut
 echo "🔍 Vérification du statut..."
-ssh $USER@$IP_DROPLET "cd $REMOTE_DIR && sudo docker-compose ps && \
+run_ssh_command "cd $REMOTE_DIR && sudo docker-compose ps && \
     echo 'IP Forwarding:' && cat /proc/sys/net/ipv4/ip_forward && \
     echo 'Ports ouverts:' && sudo ufw status && \
     echo 'Service systemd:' && sudo systemctl status wind-vpn --no-pager"
